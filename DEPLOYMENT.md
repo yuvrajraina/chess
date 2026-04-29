@@ -17,7 +17,7 @@ The repo includes:
 
 - `netlify.toml`: builds the React app from `frontend/` and serves it as a single-page app.
 - `render.yaml`: deploys the Django backend from `backend/` on Render.
-- `backend/.python-version`: pins Render's Python runtime family to Python 3.13.
+- `.python-version`: pins Render's Python runtime family to Python 3.13.
 
 ### 1. Create the Neon database
 
@@ -29,7 +29,8 @@ Create the Render service from `render.yaml` or use these manual settings:
 
 ```bash
 Root Directory: backend
-Build Command: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+Build Command: pip install -r requirements.txt && python manage.py collectstatic --noinput
+Pre-Deploy Command: python manage.py migrate
 Start Command: daphne -b 0.0.0.0 -p $PORT config.asgi:application
 ```
 

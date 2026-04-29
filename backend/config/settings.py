@@ -35,6 +35,10 @@ def env_list(name, default=None):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def env_origin_list(name, default=None):
+    return [origin.rstrip('/') for origin in env_list(name, default)]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
@@ -84,11 +88,11 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = env_bool('CORS_ALLOW_ALL_ORIGINS', False)
-CORS_ALLOWED_ORIGINS = env_list(
+CORS_ALLOWED_ORIGINS = env_origin_list(
     'CORS_ALLOWED_ORIGINS',
     ['http://127.0.0.1:3000', 'http://localhost:3000'] if DEBUG else [],
 )
-CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', CORS_ALLOWED_ORIGINS)
+CSRF_TRUSTED_ORIGINS = env_origin_list('CSRF_TRUSTED_ORIGINS', CORS_ALLOWED_ORIGINS)
 
 ROOT_URLCONF = 'config.urls'
 
@@ -145,7 +149,7 @@ SIMPLE_JWT = {
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = os.getenv('DATABASE_URL', '').strip()
 if DATABASE_URL:
     database = urlparse(DATABASE_URL)
     if database.scheme in {'sqlite', 'sqlite3'}:
@@ -173,8 +177,13 @@ if DATABASE_URL:
             },
         }
     else:
-        raise ImproperlyConfigured(f'Unsupported DATABASE_URL scheme: {database.scheme}')
+        raise ImproperlyConfigured(
+            'DATABASE_URL must start with postgresql://, postgres://, sqlite://, '
+            f'or sqlite3://. Got scheme: {database.scheme or "<empty>"}'
+        )
 else:
+    if not DEBUG:
+        raise ImproperlyConfigured('DATABASE_URL must be set when DJANGO_DEBUG=false')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
