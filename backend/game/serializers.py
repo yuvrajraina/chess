@@ -1,3 +1,5 @@
+import json
+
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Game, Move
@@ -64,3 +66,7 @@ class GameSerializer(serializers.ModelSerializer):
         if obj.black_player_id is None:
             return None
         return obj.black_player.username
+
+
+def serialize_game(game):
+    return json.loads(json.dumps(GameSerializer(game).data))

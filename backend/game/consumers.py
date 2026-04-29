@@ -13,7 +13,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 from django.contrib.auth.models import User
 
 from .models import Game, Move
-from .serializers import GameSerializer
+from .serializers import serialize_game
 
 class ChessConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -87,7 +87,7 @@ class ChessConsumer(AsyncJsonWebsocketConsumer):
     def get_game_data(self):
         try:
             game = Game.objects.get(id=self.game_id)
-            return GameSerializer(game).data
+            return serialize_game(game)
         except Game.DoesNotExist:
             return None
 
@@ -132,7 +132,7 @@ class ChessConsumer(AsyncJsonWebsocketConsumer):
                     game.status = 'finished'
                     game.result = board.result()
                     game.save()
-                    return {'game': GameSerializer(game).data}
+                    return {'game': serialize_game(game)}
                 
                 if game.mode == 'single':
                     opponent_move = random.choice(list(board.legal_moves))
@@ -149,7 +149,7 @@ class ChessConsumer(AsyncJsonWebsocketConsumer):
                         game.result = board.result()
                     game.save()
 
-                return {'game': GameSerializer(game).data}
+                return {'game': serialize_game(game)}
         except Game.DoesNotExist:
             return {'error': 'Game not found'}
         except Exception as e:

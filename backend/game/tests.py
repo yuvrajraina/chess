@@ -1,12 +1,19 @@
+import asyncio
 import json
 import uuid
 
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from .models import Game, Move
 from .serializers import GameSerializer
+
+
+async def receive_channel_message(channel_layer, channel_name):
+    return await asyncio.wait_for(channel_layer.receive(channel_name), timeout=1)
 
 
 class GameApiTests(APITestCase):
@@ -49,6 +56,31 @@ class GameApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_join_multiplayer_broadcasts_updated_game(self):
+        game = Game.objects.create(
+            white_player=self.white,
+            mode="multi",
+            status="waiting",
+        )
+        channel_layer = get_channel_layer()
+        channel_name = async_to_sync(channel_layer.new_channel)()
+        group_name = f"game_{game.id}"
+        async_to_sync(channel_layer.group_add)(group_name, channel_name)
+        self.client.force_authenticate(self.black)
+
+        try:
+            response = self.client.post(reverse("join_multiplayer", args=[game.id]))
+            message = async_to_sync(receive_channel_message)(channel_layer, channel_name)
+        finally:
+            async_to_sync(channel_layer.group_discard)(group_name, channel_name)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "in_progress")
+        self.assertEqual(message["type"], "broadcast_game")
+        self.assertEqual(message["game"]["id"], str(game.id))
+        self.assertEqual(message["game"]["status"], "in_progress")
+        self.assertEqual(message["game"]["black_id"], self.black.id)
+
     def test_non_participant_cannot_fetch_game(self):
         game = Game.objects.create(
             white_player=self.white,
@@ -80,4 +112,3 @@ class GameApiTests(APITestCase):
         self.assertEqual(data["moves"][0]["game_id"], str(game.id))
         self.assertIsNone(data["moves"][0]["player_id"])
         self.assertEqual(data["moves"][0]["player_name"], "Bot")
-

@@ -1,10 +1,26 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from rest_framework import generics, permissions
 from rest_framework import status as http_status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 
 from .models import Game
-from .serializers import GameSerializer, RegisterSerializer
+from .serializers import GameSerializer, RegisterSerializer, serialize_game
+
+
+def broadcast_game_state(game_id, game_data):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+
+    async_to_sync(channel_layer.group_send)(
+        f'game_{game_id}',
+        {
+            'type': 'broadcast_game',
+            'game': game_data,
+        },
+    )
 
 
 class RegisterView(generics.CreateAPIView):
@@ -20,7 +36,7 @@ def create_single_player_game(request):
         status = 'in_progress'
     )
 
-    return Response(GameSerializer(game).data, status=http_status.HTTP_201_CREATED)
+    return Response(serialize_game(game), status=http_status.HTTP_201_CREATED)
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -30,7 +46,7 @@ def create_multiplayer_game(request):
         mode='multi',
         status='waiting',
     )
-    return Response(GameSerializer(game).data, status=http_status.HTTP_201_CREATED)
+    return Response(serialize_game(game), status=http_status.HTTP_201_CREATED)
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -52,7 +68,10 @@ def join_multiplayer_game(request, game_id):
     game.status = 'in_progress'
     game.save()
 
-    return Response(GameSerializer(game).data)
+    game_data = serialize_game(game)
+    broadcast_game_state(game.id, game_data)
+
+    return Response(game_data)
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
@@ -71,4 +90,4 @@ def get_game(request, game_id):
     if game.white_player != request.user and game.black_player != request.user:
         return Response({'error': 'You do not have access to this game'}, status=403)
 
-    return Response(GameSerializer(game).data)
+    return Response(serialize_game(game))
