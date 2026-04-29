@@ -15,6 +15,67 @@ from django.contrib.auth.models import User
 from .models import Game, Move
 from .serializers import serialize_game
 
+
+def apply_game_move(game_id, user, move_uci):
+    try:
+        with transaction.atomic():
+            game = Game.objects.select_for_update().get(id=game_id)
+            if game.status != 'in_progress':
+                return {'error': 'Game is not active'}
+
+            board = chess.Board(game.fen)
+            is_white_turn = board.turn == chess.WHITE
+            if (is_white_turn and game.white_player != user) or (not is_white_turn and game.black_player != user):
+                return {'error': 'Not your turn'}
+            try:
+                move = chess.Move.from_uci(move_uci)
+            except ValueError:
+                return {'error': 'Invalid move format'}
+
+            if move not in board.legal_moves:
+                return {'error': 'Illegal move'}
+
+            board.push(move)
+            Move.objects.create(
+                game=game,
+                player=user,
+                move=move_uci,
+                fen_after=board.fen()
+            )
+
+            game.fen = board.fen()
+
+            if board.is_game_over():
+                game.status = 'finished'
+                game.result = board.result()
+                game.save()
+                return {'game': serialize_game(game)}
+
+            if game.mode == 'single':
+                opponent_move = random.choice(list(board.legal_moves))
+                board.push(opponent_move)
+                Move.objects.create(
+                    game=game,
+                    player=None,
+                    move=opponent_move.uci(),
+                    fen_after=board.fen()
+                )
+                game.fen = board.fen()
+                if board.is_game_over():
+                    game.status = 'finished'
+                    game.result = board.result()
+                game.save()
+            else:
+                game.save(update_fields=['fen', 'updated_at'])
+
+            return {'game': serialize_game(game)}
+    except Game.DoesNotExist:
+        return {'error': 'Game not found'}
+    except Exception as e:
+        print(f"Move error: {e}")
+        return {'error': 'An error occurred while making the move'}
+
+
 class ChessConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.game_id = self.scope['url_route']['kwargs']['game_id']
@@ -100,61 +161,7 @@ class ChessConsumer(AsyncJsonWebsocketConsumer):
         
     @database_sync_to_async
     def make_move(self, move_uci):
-        try:
-            with transaction.atomic():
-                game = Game.objects.select_for_update().get(id=self.game_id)
-                if game.status != 'in_progress':
-                    return {'error': 'Game is not active'}
-                
-                board = chess.Board(game.fen)
-                is_white_turn = board.turn == chess.WHITE
-                if (is_white_turn and game.white_player != self.user) or (not is_white_turn and game.black_player != self.user):
-                    return {'error': 'Not your turn'}
-                try:
-                    move = chess.Move.from_uci(move_uci)
-                except ValueError:
-                    return {'error': 'Invalid move format'}
-                
-                if move not in board.legal_moves:
-                    return {'error': 'Illegal move'}
-                
-                board.push(move)
-                Move.objects.create(
-                    game= game,
-                    player = self.user,
-                    move = move_uci,
-                    fen_after = board.fen()
-                )
-
-                game.fen = board.fen()
-
-                if board.is_game_over():
-                    game.status = 'finished'
-                    game.result = board.result()
-                    game.save()
-                    return {'game': serialize_game(game)}
-                
-                if game.mode == 'single':
-                    opponent_move = random.choice(list(board.legal_moves))
-                    board.push(opponent_move)
-                    Move.objects.create(
-                        game= game,
-                        player = None,
-                        move = opponent_move.uci(),
-                        fen_after = board.fen()
-                    )
-                    game.fen = board.fen()
-                    if board.is_game_over():
-                        game.status = 'finished'
-                        game.result = board.result()
-                    game.save()
-
-                return {'game': serialize_game(game)}
-        except Game.DoesNotExist:
-            return {'error': 'Game not found'}
-        except Exception as e:
-            print(f"Move error: {e}")
-            return {'error': 'An error occurred while making the move'}
+        return apply_game_move(self.game_id, self.user, move_uci)
             
 
 

@@ -2,12 +2,14 @@ import asyncio
 import json
 import uuid
 
+import chess
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
+from .consumers import apply_game_move
 from .models import Game, Move
 from .serializers import GameSerializer
 
@@ -80,6 +82,27 @@ class GameApiTests(APITestCase):
         self.assertEqual(message["game"]["id"], str(game.id))
         self.assertEqual(message["game"]["status"], "in_progress")
         self.assertEqual(message["game"]["black_id"], self.black.id)
+
+    def test_multiplayer_white_move_is_saved_before_black_turn(self):
+        game = Game.objects.create(
+            white_player=self.white,
+            black_player=self.black,
+            mode="multi",
+            status="in_progress",
+        )
+
+        white_result = apply_game_move(game.id, self.white, "e2e4")
+        game.refresh_from_db()
+        board_after_white = chess.Board(game.fen)
+        black_result = apply_game_move(game.id, self.black, "e7e5")
+        game.refresh_from_db()
+        board_after_black = chess.Board(game.fen)
+
+        self.assertNotIn("error", white_result)
+        self.assertEqual(board_after_white.turn, chess.BLACK)
+        self.assertNotIn("error", black_result)
+        self.assertEqual(black_result["game"]["moves"][-1]["move"], "e7e5")
+        self.assertEqual(board_after_black.turn, chess.WHITE)
 
     def test_non_participant_cannot_fetch_game(self):
         game = Game.objects.create(
